@@ -21,5 +21,5 @@ Naive Bayes	Provides a solid probabilistic baseline (AUC: 0.9874), though strong
 Random Forest (Ensemble)	Combines multiple decision trees via bootstrap aggregation (bagging) to effectively reduce tree variance, achieving an excellent ROC-AUC score of 0.9924.
 XGBoost (Ensemble)	Sequentially minimizes residual errors via gradient boosting, producing high ROC-AUC (0.9944) and matching kNN in accuracy (96.49%) and MCC (0.9242).
 Overall Winner for your dataset?	Logistic Regression — Achieved the overall top performance across Accuracy (0.9825), AUC (0.9974), Recall (1.0000), F1-Score (0.9863), and MCC (0.9628) due to clean linear separability in the standardized high-dimensional feature space.
-<img width="161" height="4865" alt="image" src="https://github.com/user-attachments/assets/81e0234c-8973-4766-94be-ee77264b7515" />
+
 
