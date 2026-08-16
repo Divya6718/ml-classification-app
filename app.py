@@ -25,12 +25,12 @@ st.write("---")
 
 # Model File Registry
 MODEL_FILES = {
-    "Logistic Regression": ("Logistic_Regression.pkl", True),
-    "Decision Tree": ("Decision_Tree.pkl", False),
+    "Logistic Regression": ("Logistic Regression.pkl", True),
+    "Decision Tree": ("Decision Tree.pkl", False),
     "kNN": ("kNN.pkl", True),
     "Naive Bayes": ("Naive Bayes.pkl", True),
-    "Random Forest (Ensemble)": ("Random Forest.pkl", False),
-    "XGBoost (Ensemble)": ("XGBoost.pkl", False)
+    "Random Forest (Ensemble)": ("Random Forest (Ensemble).pkl", False),
+    "XGBoost (Ensemble)": ("XGBoost (Ensemble).pkl", False)
 }
 
 # -------------------------------------------------------------
