@@ -2,146 +2,221 @@ import os
 import joblib
 import pandas as pd
 import numpy as np
-import streamlit as st
-import matplotlib.pyplot as plt
-import seaborn as sns
+
+from sklearn.datasets import load_breast_cancer
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import (
     accuracy_score, roc_auc_score, precision_score, 
-    recall_score, f1_score, matthews_corrcoef, 
-    confusion_matrix, classification_report
+    recall_score, f1_score, matthews_corrcoef
+)
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.ensemble import RandomForestClassifier
+
+# =====================================================================
+# STEP 1: DATASET SELECTION (UCI Breast Cancer Wisconsin Diagnostic)
+# =====================================================================
+print("==================================================")
+print("   STEP 1: LOADING UCI BREAST CANCER DATASET      ")
+print("==================================================")
+
+data = load_breast_cancer(as_frame=True)
+df = data.frame
+
+X = df.drop("target", axis=1)
+y = df["target"]
+
+print(f"Total Instances (Rows) : {df.shape[0]} (Requirement >= 500 met)")
+print(f"Total Features (Cols)  : {X.shape[1]} (Requirement >= 12 met)")
+print(f"Class Distribution     : {dict(y.value_counts())}\n")
+
+# Create output folder for models
+os.makedirs("model", exist_ok=True)
+
+# =====================================================================
+# STEP 2: ML CLASSIFICATION MODELS & EVALUATION METRICS
+# =====================================================================
+print("==================================================")
+print("   STEP 2: TRAINING MODELS & COMPUTING METRICS    ")
+print("==================================================")
+
+# 1. Train-Test Split (80% Train, 20% Test)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
 )
 
-# Streamlit Page Configuration
-st.set_page_config(
-    page_title="Breast Cancer Diagnostics Classifier",
-    page_icon="🔬",
-    layout="wide"
-)
+# 2. Scale Features (Crucial for Logistic Regression and kNN)
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
 
-# App Header
-st.title("🔬 Breast Cancer Diagnostic — ML Classification Dashboard")
-st.markdown("### Interactive evaluation and metrics demonstration trained on the UCI Dataset")
-st.write("---")
+# Save scaler and test dataset
+joblib.dump(scaler, os.path.join("model", "scaler.joblib"))
+test_df = X_test.copy()
+test_df["target"] = y_test
+test_df.to_csv("test_data.csv", index=False)
+print("Saved `test_data.csv` and `scaler.joblib` successfully.\n")
 
-# Model File Registry
-MODEL_FILES = {
-    "logistic regression": ("logistic_regression.pkl", True),
-    "decision tree": ("decision_tree.pkl", False),
-    "knn": ("knn.pkl", True),
-    "naive bayes": ("naive_bayes.pkl", True),
-    "random forest (Ensemble)": ("random_forest.pkl", False),
-    "xgboost (Ensemble)": ("xgboost.pkl", False)
+# 3. Define the 5 Classification Models
+models = {
+    "Logistic Regression": (LogisticRegression(max_iter=1000, random_state=42), True),
+    "Decision Tree": (DecisionTreeClassifier(random_state=42), False),
+    "kNN": (KNeighborsClassifier(n_neighbors=5), True),
+    "Naive Bayes": (GaussianNB(), False),
+    "Random Forest": (RandomForestClassifier(n_estimators=100, random_state=42), False)
 }
 
-# -------------------------------------------------------------
-# Sidebar Configuration & Data Input
-# -------------------------------------------------------------
-st.sidebar.header("🕹️ Controls & Settings")
+results = []
 
-selected_model_name = st.sidebar.selectbox(
-    "Select ML Model:",
-    list(MODEL_FILES.keys())
+# 4. Train, Evaluate, and Save Model Artifacts
+for name, (model, requires_scaling) in models.items():
+    X_tr = X_train_scaled if requires_scaling else X_train
+    X_te = X_test_scaled if requires_scaling else X_test
+    
+    # Train
+    model.fit(X_tr, y_train)
+    
+    # Save Artifact
+    filename = name.lower().replace(" ", "_") + ".joblib"
+    joblib.dump(model, os.path.join("model", filename))
+    
+    # Evaluate
+    y_pred = model.predict(X_te)
+    y_proba = model.predict_proba(X_te)[:, 1] if hasattr(model, "predict_proba") else model.decision_function(X_te)
+
+    results.append({
+        "ML Model Name": name,
+        "Accuracy": round(accuracy_score(y_test, y_pred), 4),
+        "AUC": round(roc_auc_score(y_test, y_proba), 4),
+        "Precision": round(precision_score(y_test, y_pred, zero_division=0), 4),
+        "Recall": round(recall_score(y_test, y_pred, zero_division=0), 4),
+        "F1 Score": round(f1_score(y_test, y_pred, zero_division=0), 4),
+        "MCC": round(matthews_corrcoef(y_test, y_pred), 4)
+    })
+
+# Print Results
+results_df = pd.DataFrame(results)
+print("--- MODEL EVALUATION METRICS TABLE ---")
+print(results_df.to_string(index=False))
+print("\n")
+
+
+# =====================================================================
+# STEP 3: WRITE Streamlit `app.py` FILE AUTOMATICALLY
+# =====================================================================
+app_code = """import os
+import joblib
+import pandas as pd
+import numpy as np
+import streamlit as st
+from sklearn.metrics import (
+    accuracy_score, roc_auc_score, precision_score, 
+    recall_score, f1_score, matthews_corrcoef, confusion_matrix
 )
 
-uploaded_file = st.sidebar.file_uploader(
-    "Upload Test CSV Data:", 
-    type=["csv"],
-    help="Upload test data CSV with matching feature columns."
-)
+st.set_page_config(page_title="Breast Cancer Classification Dashboard", page_icon="", layout="wide")
 
-# Load Uploaded CSV or Default Test Data
+MODEL_FILES = {
+    "Logistic Regression": ("logistic_regression.joblib", True),
+    "Decision Tree": ("decision_tree.joblib", False),
+    "kNN": ("knn.joblib", True),
+    "Naive Bayes": ("naive_bayes.joblib", False),
+    "Random Forest": ("random_forest.joblib", False)
+}
+
+@st.cache_resource
+def load_scaler():
+    scaler_path = os.path.join("model", "scaler.joblib")
+    if os.path.exists(scaler_path):
+        return joblib.load(scaler_path)
+    return None
+
+@st.cache_resource
+def load_model(model_key):
+    filename, _ = MODEL_FILES[model_key]
+    model_path = os.path.join("model", filename)
+    if os.path.exists(model_path):
+        return joblib.load(model_path)
+    return None
+
+scaler = load_scaler()
+
+st.sidebar.title("Navigation & Settings")
+model_choice = st.sidebar.selectbox("Select Classification Model:", list(MODEL_FILES.keys()))
+uploaded_file = st.sidebar.file_uploader("Upload CSV Test Dataset", type=["csv"])
+
+st.title("Breast Cancer Prediction & Model Evaluation Dashboard")
+st.write(f"Selected Model: **{model_choice}**")
+
+tab1, tab2, tab3 = st.tabs(["Model Evaluation", "Batch Predictions", "Dataset Info"])
+
 if uploaded_file is not None:
-    test_data = pd.read_csv(uploaded_file)
-    st.sidebar.success("Custom Test Dataset Loaded!")
+    data = pd.read_csv(uploaded_file)
+elif os.path.exists("test_data.csv"):
+    data = pd.read_csv("test_data.csv")
 else:
-    if os.path.exists("test_data.csv"):
-        test_data = pd.read_csv("test_data.csv")
-        st.sidebar.info("Loaded default `test_data.csv`")
-    else:
-        st.error("Default `test_data.csv` not found! Please run `model_training.py` first or upload a CSV file.")
-        st.stop()
+    data = None
 
-# Feature/Target Separation
-if "target" in test_data.columns:
-    X_test = test_data.drop(columns=["target"])
-    y_test = test_data["target"]
-else:
-    X_test = test_data.copy()
-    y_test = None
-
-# Load Model & Scaler Binaries
-model_filename, needs_scaling = MODEL_FILES[selected_model_name]
-model_path = os.path.join("model", model_filename)
-scaler_path = os.path.join("model", "standard_scaler.pkl")
-
-if os.path.exists(model_path) and os.path.exists(scaler_path):
-    model = joblib.load(model_path)
-    scaler = joblib.load(scaler_path)
-    
-    # Scale test features if required by algorithm
-    X_eval = scaler.transform(X_test) if needs_scaling else X_test
-    
-    # Generate Predictions
-    y_pred = model.predict(X_eval)
-    
-    # -------------------------------------------------------------
-    # 1. Metric Displays
-    # -------------------------------------------------------------
-    if y_test is not None:
-        y_proba = model.predict_proba(X_eval)[:, 1] if hasattr(model, "predict_proba") else y_pred
+with tab1:
+    st.header(f"Performance Metrics: {model_choice}")
+    if data is not None and "target" in data.columns:
+        X_test = data.drop(columns=["target"])
+        y_test = data["target"]
+        model = load_model(model_choice)
         
-        acc = accuracy_score(y_test, y_pred)
-        auc = roc_auc_score(y_test, y_proba)
-        prec = precision_score(y_test, y_pred)
-        rec = recall_score(y_test, y_pred)
-        f1 = f1_score(y_test, y_pred)
-        mcc = matthews_corrcoef(y_test, y_pred)
-
-        st.subheader(f"📈 Performance Metrics for **{selected_model_name}**")
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        
-        col1.metric("Accuracy", f"{acc:.4f}")
-        col2.metric("AUC Score", f"{auc:.4f}")
-        col3.metric("Precision", f"{prec:.4f}")
-        col4.metric("Recall", f"{rec:.4f}")
-        col5.metric("F1 Score", f"{f1:.4f}")
-        col6.metric("MCC", f"{mcc:.4f}")
-        
-        st.write("---")
-
-        # -------------------------------------------------------------
-        # 2. Confusion Matrix & Classification Report
-        # -------------------------------------------------------------
-        c1, c2 = st.columns([1, 1])
-        
-        with c1:
-            st.subheader("📌 Confusion Matrix")
-            cm = confusion_matrix(y_test, y_pred)
-            fig, ax = plt.subplots(figsize=(5, 4))
-            sns.heatmap(cm, annot=True, fmt="d", cmap="RdPu", ax=ax,
-                        xticklabels=["Malignant (0)", "Benign (1)"],
-                        yticklabels=["Malignant (0)", "Benign (1)"])
-            ax.set_xlabel("Predicted Label")
-            ax.set_ylabel("True Label")
-            st.pyplot(fig)
+        if model is not None:
+            _, requires_scaling = MODEL_FILES[model_choice]
+            X_input = scaler.transform(X_test) if (requires_scaling and scaler is not None) else X_test
             
-        with c2:
-            st.subheader("📋 Classification Report")
-            report_dict = classification_report(y_test, y_pred, output_dict=True)
-            report_df = pd.DataFrame(report_dict).transpose()
-            st.dataframe(report_df.style.format("{:.4f}"))
+            y_pred = model.predict(X_input)
+            y_proba = model.predict_proba(X_input)[:, 1] if hasattr(model, "predict_proba") else model.decision_function(X_input)
+            
+            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            col1.metric("Accuracy", f"{accuracy_score(y_test, y_pred):.4f}")
+            col2.metric("AUC", f"{roc_auc_score(y_test, y_proba):.4f}")
+            col3.metric("Precision", f"{precision_score(y_test, y_pred, zero_division=0):.4f}")
+            col4.metric("Recall", f"{recall_score(y_test, y_pred, zero_division=0):.4f}")
+            col5.metric("F1 Score", f"{f1_score(y_test, y_pred, zero_division=0):.4f}")
+            col6.metric("MCC Score", f"{matthews_corrcoef(y_test, y_pred):.4f}")
+            
+            st.markdown("---")
+            st.subheader("Confusion Matrix")
+            cm = confusion_matrix(y_test, y_pred)
+            cm_df = pd.DataFrame(cm, index=["Actual Benign (0)", "Actual Malignant (1)"], columns=["Predicted Benign (0)", "Predicted Malignant (1)"])
+            st.dataframe(cm_df, use_container_width=True)
+    else:
+        st.warning("Please upload a CSV file containing a `'target'` column.")
 
-    # -------------------------------------------------------------
-    # 3. Model Output Table
-    # -------------------------------------------------------------
-    st.write("---")
-    st.subheader("🔍 Model Predictions Sample")
-    pred_df = X_test.copy()
-    pred_df["Predicted Label"] = y_pred
-    if y_test is not None:
-        pred_df["Actual Label"] = y_test
-    
-    st.dataframe(pred_df.head(10))
+with tab2:
+    st.header("Batch Prediction Results")
+    if data is not None:
+        X_input_raw = data.drop(columns=["target"]) if "target" in data.columns else data.copy()
+        model = load_model(model_choice)
+        if model is not None:
+            _, requires_scaling = MODEL_FILES[model_choice]
+            X_input_prep = scaler.transform(X_input_raw) if (requires_scaling and scaler is not None) else X_input_raw
+            
+            preds = model.predict(X_input_prep)
+            probs = model.predict_proba(X_input_prep)[:, 1] if hasattr(model, "predict_proba") else [None]*len(preds)
+            
+            res = X_input_raw.copy()
+            res["Predicted_Class"] = preds
+            res["Predicted_Label"] = res["Predicted_Class"].map({1: "Malignant", 0: "Benign"})
+            res["Malignant_Probability"] = probs
+            st.dataframe(res, use_container_width=True)
 
-else:
-    st.error(f"Required model file `{model_path}` not found. Please run `model_training.py` first to generate models.")
+with tab3:
+    st.header("Dataset Summary")
+    if data is not None:
+        st.write(f"**Total Samples:** {data.shape[0]}")
+        st.write(f"**Total Features:** {data.shape[1] - (1 if 'target' in data.columns else 0)}")
+        st.dataframe(data.head(10), use_container_width=True)
+"""
+
+with open("app.py", "w") as f:
+    f.write(app_code)
+
+print("app.py` generated successfully!")
